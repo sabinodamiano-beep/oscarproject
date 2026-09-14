@@ -1,0 +1,66 @@
+import '../../domain/entities/item.dart';
+
+class ItemModel extends Item {
+  const ItemModel({
+    required super.coditems,
+    required super.desitems,
+    required super.existencia,
+    required super.ubicacion,
+    required super.codBarra,
+    required super.activo,
+    required super.status,
+    required super.precioPvp,
+    required super.precioEspecial,
+    required super.precioDistribuidor,
+    required super.precioMayor,
+    required super.precioOferta,
+    required super.ventaCaja,
+    required super.ventaBotella,
+    required super.litros,
+    required super.codMarca,
+    required super.codLinea,
+    required super.codPresentacion,
+    required super.nombreMarca,
+    super.dolPre,
+    super.dolOfe,
+    super.dolMay,
+    super.dolDis,
+    super.dolEsp,
+    super.cantunidad,
+    super.nombreLinea,
+    super.nombrePresentacion,
+  });
+
+  /// Desde JSON del endpoint GET /api/productos
+  factory ItemModel.fromJson(Map<String, dynamic> json) {
+    return ItemModel(
+      coditems: json['coditems']?.toString().trim() ?? '',
+      desitems: json['desitems']?.toString().trim() ?? '',
+      existencia: (json['existencia'] ?? 0).toDouble(),
+      ubicacion: json['ubicacion']?.toString().trim() ?? '',
+      codBarra: json['CodBarra']?.toString().trim() ?? '',
+      activo: json['activo']?.toString().trim() ?? '',
+      status: json['Status']?.toString().trim() ?? '',
+      precioPvp: (json['porcentaje_pvp'] ?? 0).toDouble(),
+      precioEspecial: (json['porcentaje_especial'] ?? 0).toDouble(),
+      precioDistribuidor: (json['porcentaje_distribuidor'] ?? 0).toDouble(),
+      precioMayor: (json['porcentaje_mayor'] ?? 0).toDouble(),
+      precioOferta: (json['porcentaje_oferta'] ?? 0).toDouble(),
+      ventaCaja: json['VentaCaja']?.toString().trim() ?? '0',
+      ventaBotella: json['VentaBotella']?.toString().trim() ?? '0',
+      litros: (json['litros'] ?? 0).toDouble(),
+      codMarca: json['Cod_Marca'] ?? 0,
+      codLinea: json['Cod_Linea'] ?? 0,
+      codPresentacion: json['Cod_Presentacion'] ?? 0,
+      nombreMarca: json['Nombre_Marca']?.toString().trim() ?? '',
+      dolPre: (json['DOLpre'] ?? 0).toDouble(),
+      dolOfe: (json['DOLofe'] ?? 0).toDouble(),
+      dolMay: (json['DOLmay'] ?? 0).toDouble(),
+      dolDis: (json['DOLdis'] ?? 0).toDouble(),
+      dolEsp: (json['DOLesp'] ?? 0).toDouble(),
+      cantunidad: (json['cantunidad'] ?? 1).toDouble(),
+      nombreLinea: json['Nombre_Linea']?.toString().trim() ?? '',
+      nombrePresentacion: json['Nombre_Presentacion']?.toString().trim() ?? '',
+    );
+  }
+}

@@ -1,0 +1,48 @@
+# ============================================================
+#  Secretos - NUNCA subir
+# ============================================================
+.env
+*.env
+!.env.example
+**/.env
+key.properties
+*.jks
+*.keystore
+
+# ============================================================
+#  Dependencias
+# ============================================================
+node_modules/
+**/node_modules/
+
+# ============================================================
+#  Respaldos locales (no van al repositorio)
+# ============================================================
+lib_bak_*/
+*.bak
+*.bak_*
+*_bak_*/
+
+# ============================================================
+#  Flutter / Dart
+# ============================================================
+tallerjc_app/build/
+tallerjc_app/.dart_tool/
+tallerjc_app/.flutter-plugins
+tallerjc_app/.flutter-plugins-dependencies
+tallerjc_app/android/local.properties
+tallerjc_app/android/.gradle/
+tallerjc_app/ios/Pods/
+tallerjc_app/.idea/
+*.iml
+
+# ============================================================
+#  macOS / Windows / editores
+# ============================================================
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+.vscode/
+*.log
+tallerjc-api/config/empresas.json

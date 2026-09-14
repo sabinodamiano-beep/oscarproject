@@ -1,0 +1,10 @@
+{
+    "001": {
+        "nombre": "NOMBRE DE LA EMPRESA",
+        "server": "localhost",
+        "port": 1433,
+        "database": "NOMBRE_BASE_DATOS",
+        "user": "USUARIO_SQL",
+        "password": "CLAVE_SQL"
+    }
+}
