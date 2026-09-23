@@ -1,0 +1,171 @@
+=====================================================================
+ GYFSOFTWARE MOVIL - MODULO DE COBRANZA v1.3.0 (ajustes finales)
+ Fecha: 21/09/2026
+=====================================================================
+
+QUE TRAE ESTA ENTREGA
+---------------------
+1. COBRANZA SIN CONEXION (igual que los pedidos)
+   - El cobro se guarda SIEMPRE primero en el telefono y se envia solo
+     al recuperar senal (cola FIFO con reintentos 5s/30s/2min).
+   - La deuda del cliente se cachea en cada sync de catalogos (nuevo
+     endpoint GET /api/cobros/cxc-vendedor). Sin senal, la tarjeta de
+     CxC y la pantalla de cobro muestran "saldo al {fecha}" (max 24 h).
+   - Recibo PDF offline con franja "PENDIENTE DE ENVIO - SIN CONEXION"
+     y numero "PENDIENTE" (el numpago lo asigna el servidor al enviar).
+   - Historial de Cobranza fusionado: tarjetas locales arriba
+     (naranja = por enviar, rojo = RECHAZADO por el servidor con el
+     motivo). Un rechazo NUNCA se descarta solo: el dinero ya se
+     recibio, el vendedor lo reintenta o lo resuelve con la oficina.
+   - Idempotencia por client_uuid: un reintento jamas duplica.
+
+2. DESCUENTO (forma 05) PARA EL VENDEDOR
+   - Regla confirmada por Sabino: aplica cuando el cliente paga en
+     dolares. En la app, la opcion "Descuento" aparece en el selector
+     solo cuando ya hay una forma DOLARES en el cobro.
+   - El vendedor indica el % (la app calcula el monto sobre el total
+     de documentos, editable) y participa del cuadre igual que en
+     InvenSoft. Referencia identica a la del VB6:
+     "DSCTO.% 10 # 0013521" (cobro real 0004838).
+   - La API valida: descuento con monto > 0 exige una forma DOLARES
+     con monto > 0; sin banco y sin tasa. Sigue aceptando monto 0
+     (informativo).
+
+3. SELECCION DE VARIAS FACTURAS
+   - Ya existia (checkboxes con monto editable). Se agrego el boton
+     "Marcar todas / Desmarcar todas" y el contador (N/M) en la
+     seccion y en la barra de total.
+
+4. FORMATO DEL PAGO MOVIL (regla confirmada por Sabino, 21/09)
+   - Sabino registra el banco DEL CLIENTE y el numero de transaccion
+     (ejemplo suyo: cobro 9000009). La API ahora graba:
+       codbanco  = banco emisor del cliente (catalogo)
+       nrotrans  = ultimos digitos de la referencia (su campo
+                   "numero de transaccion")
+       referencia = "PM {BANCO RECEPTOR} {digitos}" (para no perder
+                   donde cayo el dinero)
+   - La app manda lo mismo de siempre; el remapeo es solo en la API.
+   - La numeracion 9000005+ que tomaron los cobros de la oficina se
+     queda asi (Sabino: "dejalo asi, para mi hace el trabajo").
+   - Prueba: registrar un pago movil desde la app y verificar
+     SELECT codformapago, codbanco, referencia, nrotrans
+     FROM tbl_dfpago WHERE numpago='XXXXXXX'
+     -> codbanco = banco del cliente, nrotrans = digitos.
+
+5. FIX DE FECHAS (convencion del VB6)
+   - tbl_mpago/tbl_dpago/tbl_dfpago: fecha y fecreg ahora se graban
+     SOLO con la fecha (CONVERT(date, GETDATE())), la hora sigue en
+     horareg. Antes iban con hora y podian quedar fuera de los
+     filtros BETWEEN por dia de los reportes de InvenSoft (el cobro
+     9000001 salio con fecha 18:33:52 y la oficina lo normalizo al
+     cerrarlo). fechanul (anulaciones) usa la misma convencion.
+   - OJO: pedidos.js podria tener el mismo patron; NO se toco en esta
+     entrega para no mezclar. Revisarlo aparte.
+
+ARCHIVOS
+--------
+API (1 modificado):
+  tallerjc-api/routes/cobros.js
+    - Reglas nuevas del descuento en validarFormas
+    - CONVERT(date, GETDATE()) en los 3 INSERT y en la anulacion
+    - Nuevo GET /api/cobros/cxc-vendedor (declarado antes de /:id)
+
+APP - NUEVOS (2):
+  lib/core/sync/cobros_outbox_service.dart
+  lib/features/cobros/data/models/cobro_local_model.dart
+
+APP - MODIFICADOS (8):
+  lib/core/database/local_database.dart            (v2: cxc_cache + cobros_outbox, con migracion)
+  lib/core/sync/catalog_sync_service.dart          (baja catalogos de cobros + CxC del vendedor)
+  lib/core/constants/api_constants.dart            (appVersion 1.3.0)
+  lib/features/cobros/data/datasources/cobro_remote_datasource.dart
+  lib/features/cobros/presentation/screens/cobro_crear_screen.dart
+  lib/features/cobros/presentation/screens/cobros_screen.dart
+  lib/features/cobros/presentation/utils/cobro_pdf.dart   (estado LOCAL)
+  lib/features/clientes/presentation/widgets/cliente_cxc_card.dart
+  lib/features/auth/presentation/providers/auth_provider.dart (inicia/detiene la cola de cobros)
+
+Sin SQL nuevo en el servidor: no hay tablas ni scripts que ejecutar.
+La base local del telefono migra sola de v1 a v2 al abrir la app.
+
+DESPLIEGUE API (PowerShell, un comando a la vez)
+------------------------------------------------
+1. Respaldar el actual:
+   copy C:\licores-api\routes\cobros.js C:\licores-api\routes\cobros.js.bak
+
+2. Copiar el nuevo cobros.js a C:\licores-api\routes\
+
+3. Reiniciar:
+   pm2.cmd restart licores-api
+
+4. Prueba de humo (con un token valido de la app):
+   curl.exe -H "Authorization: Bearer TOKEN" http://localhost:3000/api/cobros/catalogos
+   curl.exe -H "Authorization: Bearer TOKEN" http://localhost:3000/api/cobros/cxc-vendedor
+   (la segunda debe devolver {"generado_en": "...", "documentos": [...]})
+
+Nota: si la app 1.3.0 corre contra una API vieja, todo sigue
+funcionando en linea; solo el cache de CxC no se llena (el sync lo
+trata como mejor esfuerzo). Igual conviene actualizar la API primero.
+
+COMPILAR LA APP
+---------------
+1. Copiar la carpeta lib/ de esta entrega sobre el proyecto Flutter
+2. flutter analyze
+3. flutter build apk --release
+
+PLAN DE PRUEBAS (vendedor SERGIO CASANOVA, cedula 12096169, clave 09)
+---------------------------------------------------------------------
+A. Marcar todas
+   - Cliente con 2+ documentos -> "Marcar todas" selecciona todo con
+     su saldo, contador (N/M) visible, "Desmarcar todas" limpia.
+
+B. Descuento
+   1) Intentar agregar descuento SIN forma Dolares: la opcion no
+      aparece en el selector.
+   2) Agregar Dolares, luego Descuento 10%: el monto se autocalcula
+      sobre el total de documentos y se puede editar. Registrar.
+   3) Verificar en SQL:
+      SELECT codformapago, monto, referencia FROM tbl_dfpago
+      WHERE numpago = 'XXXXXXX' AND codalmacen = 1
+      -> fila 05 con monto real y referencia "DSCTO.% 10 # {iddoc}"
+   4) (API directa) mandar descuento sin Dolares -> 400 con el
+      mensaje "El descuento aplica cuando el cliente paga en dolares".
+
+C. Fechas
+   - Registrar un cobro y revisar:
+     SELECT fecha, fecreg, horareg FROM tbl_mpago WHERE numpago='XXXXXXX'
+     -> fecha y fecreg a las 00:00:00, horareg con la hora real.
+
+D. Cobranza offline
+   1) Con senal: abrir un cliente con deuda (se llena el cache al
+      sincronizar catalogos; forzar con el boton de sync si hace falta).
+   2) Modo avion. Abrir el cliente -> la tarjeta CxC muestra
+      "Sin conexion - saldo al dd/MM HH:mm" y deja registrar.
+   3) Registrar un cobro -> dialogo "Cobro guardado" + recibo PDF con
+      franja PENDIENTE DE ENVIO.
+   4) Cobranza -> tarjeta naranja "POR ENVIAR" arriba de la lista.
+   5) Quitar modo avion -> en segundos pasa a la lista del servidor
+      con su numpago (la tarjeta naranja desaparece).
+
+E. Rechazo al sincronizar (simulado)
+   1) En modo avion, registrar un cobro por el saldo COMPLETO de un
+      documento. 2) Antes de recuperar senal, registrar en linea (u
+      otra ruta) un cobro EN PROCESO por ese mismo documento.
+   3) Recuperar senal: el cobro encolado queda ROJO "RECHAZADO" con
+      el motivo del servidor ("supera el disponible..."). Verificar
+      que Reintentar y Descartar (con advertencia de dinero ya
+      recibido) funcionan y que NO se borra solo.
+
+F. Replay
+   - Registrar un cobro justo cuando se corta la senal (timeout):
+     al reintentar no debe duplicarse (misma respuesta, mismo numpago).
+
+PENDIENTES QUE NO CAMBIAN CON ESTA ENTREGA
+------------------------------------------
+- Desplegar la API en la empresa 002 (rotando JWT_SECRET) y correr
+  alli 001/002_tbl_app_idempotencia*.sql tras el corte de InvenSoft.
+- Visto bueno formal de Sabino al formato "PM {BANCO} {digitos}".
+- Fase de ver/enviar la factura confirmada (espera PDF de factura).
+- Cerrar o anular el cobro de prueba 9000003.
+- Revisar la convencion de fechas en pedidos.js (mismo patron).
+=====================================================================

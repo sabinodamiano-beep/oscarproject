@@ -81,7 +81,10 @@ class _ClienteDetalleScreenState extends State<ClienteDetalleScreen> {
               children: [
                 _buildHeaderCard(cliente),
                 const SizedBox(height: 16),
-                ClienteCxcCard(uidCliente: widget.uidCliente),
+                ClienteCxcCard(
+                  uidCliente: widget.uidCliente,
+                  nombreCliente: cliente.nombreCompleto,
+                ),
                 const SizedBox(height: 16),
                 _buildTelefonosCard(cliente),
                 const SizedBox(height: 16),

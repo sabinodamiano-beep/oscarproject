@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../cobros/presentation/screens/cobros_screen.dart';
 import '../../../../shared/widgets/error_display.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../auth/presentation/screens/home_screen.dart';
@@ -304,7 +305,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 onTap: () => _navegarATab(2),
               ),
             ),
-            const SizedBox(width: 12),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
             // Ver Productos
             Expanded(
               child: _QuickActionButton(
@@ -313,6 +318,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 color: AppTheme.warning,
                 enabled: true,
                 onTap: () => _navegarATab(3),
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Cobranza (historial de cobros del vendedor)
+            Expanded(
+              child: _QuickActionButton(
+                icon: Icons.point_of_sale_rounded,
+                label: 'Cobranza',
+                color: AppTheme.statusFacturado,
+                enabled: true,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CobrosScreen()),
+                ),
               ),
             ),
           ],

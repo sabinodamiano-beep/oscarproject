@@ -7,6 +7,7 @@ const dashboardRoutes = require('./routes/dashboard');
 const clientesRoutes = require('./routes/clientes');
 const productosRoutes = require('./routes/productos');
 const pedidosRoutes = require('./routes/pedidos');
+const cobrosRoutes = require('./routes/cobros');
 
 const app = express();
 app.use(cors());
@@ -18,6 +19,7 @@ app.use('/api', dashboardRoutes);
 app.use('/api', clientesRoutes);
 app.use('/api', productosRoutes);
 app.use('/api', pedidosRoutes);
+app.use('/api', cobrosRoutes);
 
 // Ping sin base de datos: responde aunque los SQL estén caídos.
 // Es el endpoint que usará el botón "probar conexión" de la app.

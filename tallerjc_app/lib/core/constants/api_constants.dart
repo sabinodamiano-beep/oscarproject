@@ -9,7 +9,7 @@ class ApiConstants {
   // static const String baseUrl = 'http://IP_PUBLICA_SABINO:3000/api';
 
   static const Duration timeout = Duration(seconds: 30);
-  static const String appVersion = '1.2.0';
+  static const String appVersion = '1.3.0';
   static const String appName = 'GyfSoftware Movil';
 
   // Endpoints
@@ -23,4 +23,5 @@ class ApiConstants {
   static const String lineas = '/lineas';
   static const String presentaciones = '/presentaciones';
   static const String pedidos = '/pedidos';
+  static const String cobros = '/cobros';
 }

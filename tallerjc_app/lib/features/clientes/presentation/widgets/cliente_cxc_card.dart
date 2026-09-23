@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../../../core/sync/catalog_sync_service.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../cobros/presentation/screens/cobro_crear_screen.dart';
 import '../../data/datasources/cliente_remote_datasource.dart';
 
 /// Tarjeta de "Cuenta por cobrar" del cliente.
@@ -10,12 +12,15 @@ import '../../data/datasources/cliente_remote_datasource.dart';
 /// lógica de VIEW_CtasxCobrar del sistema de escritorio: el saldo que ve
 /// el vendedor es el mismo que ve la oficina.
 ///
-/// Si no hay conexión o el endpoint falla, la tarjeta se oculta sin
-/// romper el resto del detalle del cliente (la app sigue siendo offline
-/// first: la deuda simplemente no se muestra).
+/// Sin conexión, la tarjeta cae a la última foto de CxC sincronizada por
+/// el caché de catálogos (máx. 24 h) y lo dice con claridad: "saldo al
+/// {fecha}". Desde ahí también se puede registrar el cobro, que quedará
+/// guardado en el teléfono hasta recuperar señal.
 class ClienteCxcCard extends StatefulWidget {
   final int uidCliente;
-  const ClienteCxcCard({super.key, required this.uidCliente});
+  final String nombreCliente;
+  const ClienteCxcCard(
+      {super.key, required this.uidCliente, this.nombreCliente = ''});
 
   @override
   State<ClienteCxcCard> createState() => _ClienteCxcCardState();
@@ -31,6 +36,10 @@ class _ClienteCxcCardState extends State<ClienteCxcCard> {
   bool _expandido = false;
   Map<String, dynamic>? _data;
 
+  /// true cuando los datos vienen del caché local (sin conexión).
+  bool _deCache = false;
+  DateTime? _fechaCache;
+
   @override
   void initState() {
     super.initState();
@@ -41,6 +50,7 @@ class _ClienteCxcCardState extends State<ClienteCxcCard> {
     setState(() {
       _cargando = true;
       _fallo = false;
+      _deCache = false;
     });
     try {
       final data = await _datasource.getCuentasPorCobrar(widget.uidCliente);
@@ -50,12 +60,55 @@ class _ClienteCxcCardState extends State<ClienteCxcCard> {
         _cargando = false;
       });
     } catch (_) {
+      // Sin conexión: última foto de CxC del sync de catálogos (máx. 24 h).
+      final sync = CatalogSyncService.instance;
+      if (sync.cxcVigente) {
+        try {
+          final docs = await sync.cxcLocalCliente(widget.uidCliente);
+          if (!mounted) return;
+          setState(() {
+            _data = _armarDesdeCache(docs);
+            _deCache = true;
+            _fechaCache = sync.ultimaSyncCxc;
+            _cargando = false;
+          });
+          return;
+        } catch (_) {/* cae al fallo normal */}
+      }
       if (!mounted) return;
       setState(() {
         _cargando = false;
         _fallo = true;
       });
     }
+  }
+
+  /// Reconstruye la misma respuesta de /clientes/:id/cxc a partir de las
+  /// filas cacheadas (mismas llaves; sin historial de pagados).
+  Map<String, dynamic> _armarDesdeCache(List<Map<String, dynamic>> docs) {
+    double total = 0;
+    var vencidos = 0;
+    double montoVencido = 0;
+    for (final d in docs) {
+      final signo = _d(d['ValorCxC']);
+      final saldo = _d(d['SaldoActual']);
+      total += saldo * (signo < 0 ? -1 : 1);
+      final dias = (d['dias_vencido'] as num?)?.toInt() ?? 0;
+      if (signo > 0 && dias > 0) {
+        vencidos++;
+        montoVencido += saldo;
+      }
+    }
+    double r2(double v) => (v * 100).roundToDouble() / 100;
+    return {
+      'uid_cliente': widget.uidCliente,
+      'total_deuda': r2(total),
+      'total_documentos': docs.length,
+      'documentos_vencidos': vencidos,
+      'monto_vencido': r2(montoVencido),
+      'documentos': docs,
+      'ultimos_pagados': const [],
+    };
   }
 
   double _d(dynamic v) => double.tryParse('${v ?? 0}') ?? 0;
@@ -125,14 +178,18 @@ class _ClienteCxcCardState extends State<ClienteCxcCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (_deCache) ...[_bannerCache(), const SizedBox(height: 8)],
             Row(
               children: [
                 const Icon(Icons.check_circle_rounded,
                     color: AppTheme.accent, size: 20),
                 const SizedBox(width: 10),
-                const Expanded(
-                  child: Text('Sin deuda pendiente',
-                      style: TextStyle(
+                Expanded(
+                  child: Text(
+                      _deCache
+                          ? 'Sin deuda pendiente (al último saldo sincronizado)'
+                          : 'Sin deuda pendiente',
+                      style: const TextStyle(
                           color: AppTheme.textPrimary,
                           fontSize: 14,
                           fontWeight: FontWeight.w600)),
@@ -189,6 +246,7 @@ class _ClienteCxcCardState extends State<ClienteCxcCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (_deCache) ...[_bannerCache(), const SizedBox(height: 10)],
           Row(
             children: [
               const Text(
@@ -289,6 +347,77 @@ class _ClienteCxcCardState extends State<ClienteCxcCard> {
             const Divider(color: AppTheme.divider, height: 12),
             ...docs.map((d) => _fila(d as Map)),
           ],
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            height: 42,
+            child: ElevatedButton.icon(
+              onPressed: () => _abrirCobro(docs),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.accent,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: const Icon(Icons.point_of_sale_rounded, size: 18),
+              label: const Text('Registrar cobro',
+                  style:
+                      TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Abre el registro de cobro con los documentos que el vendedor puede
+  /// cobrar: solo los que suman deuda (ValorCxC > 0) y tienen saldo.
+  Future<void> _abrirCobro(List docs) async {
+    final cobrables = docs
+        .map((d) => Map<String, dynamic>.from(d as Map))
+        .where((d) => _d(d['ValorCxC']) > 0 && _d(d['SaldoActual']) > 0)
+        .toList();
+    if (cobrables.isEmpty) return;
+
+    final registrado = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CobroCrearScreen(
+          uidCliente: widget.uidCliente,
+          nombreCliente: widget.nombreCliente,
+          documentos: cobrables,
+          saldosDe: _deCache ? _fechaCache : null,
+        ),
+      ),
+    );
+    if (registrado == true) _cargar();
+  }
+
+  Widget _bannerCache() {
+    final f = DateFormat('dd/MM HH:mm');
+    final fecha = _fechaCache == null ? '' : f.format(_fechaCache!);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.warning.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_off_rounded,
+              color: AppTheme.warning, size: 14),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Sin conexión — saldo al $fecha',
+              style: const TextStyle(
+                  color: AppTheme.warning,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600),
+            ),
+          ),
         ],
       ),
     );

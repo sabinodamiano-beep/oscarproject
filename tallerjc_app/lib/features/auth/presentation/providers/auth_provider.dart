@@ -4,6 +4,7 @@ import '../../domain/repositories/auth_repository.dart';
 import '../../domain/usecases/login_usecase.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../../../../core/sync/catalog_sync_service.dart';
+import '../../../../core/sync/cobros_outbox_service.dart';
 import '../../../../core/sync/outbox_sync_service.dart';
 
 class AuthProvider extends ChangeNotifier {
@@ -123,6 +124,7 @@ class AuthProvider extends ChangeNotifier {
     final uidVendedor = _vendedor?.uidVendedor;
     if (uidVendedor != null && uidVendedor.isNotEmpty) {
       OutboxSyncService.instance.iniciar(uidVendedor);
+      CobrosOutboxService.instance.iniciar(uidVendedor);
     }
     // Login explícito: sincronizar siempre. Sesión restaurada: solo si hace falta.
     if (refrescar) {
@@ -135,6 +137,7 @@ class AuthProvider extends ChangeNotifier {
   /// Cerrar sesión
   Future<void> logout() async {
     OutboxSyncService.instance.detener();
+    CobrosOutboxService.instance.detener();
     await CatalogSyncService.instance.cerrar();
     await _authRepository.logout();
     _vendedor = null;

@@ -14,6 +14,10 @@ const TIPOPAGO = '02';
 const PLAZO = '01';
 const CODUNID_CAJAS = 2;
 const WORKSTATION = 'APP-MOVIL';
+// uid_usuario es el OPERADOR de InvenSoft (tbl_usuarios), no el vendedor.
+// El vendedor va en uid_vendedor. Usar el id del vendedor aquí dejaba los pedidos
+// de vendedores 5+ invisibles en InvenSoft (no existen en tbl_usuarios). Igual que clientes.js.
+const UID_USUARIO_APP = 1;   // ADMIN
 
 function round2(n) {
     return Math.round(n * 100) / 100;
@@ -156,8 +160,8 @@ async function insertarDetalle(tx, uid_pedido, lineas, uid_usuario) {
 // Deja rastro del error en el log de pm2 (pm2 logs licores-api --err).
 // Sin esto, un fallo del servidor solo se ve como "Error interno" en el telefono.
 function logError(donde, req, error) {
-    const emp = (req && req.usuario && req.usuario.empresa) || '?';
-    const ven = (req && req.usuario && req.usuario.uid_vendedor) || '?';
+    const emp = (req && req.empresa) || '?';
+    const ven = (req && req.vendedor && req.vendedor.uid_vendedor) || '?';
     console.error(`[${new Date().toISOString()}] ${donde} empresa=${emp} vendedor=${ven} ` +
         `number=${error && error.number} -> ${error && (error.message || error.error)}`);
     if (error && error.stack) console.error(error.stack);
@@ -183,7 +187,7 @@ router.post('/pedidos', verificarToken, async (req, res) => {
     const client_uuid = normalizarUuid(req.body.client_uuid);
     const pool = await getConnection(req.empresa);
     const tx = new sql.Transaction(pool);
-    const uid_usuario = parseInt(req.vendedor.uid_vendedor);
+    const uid_usuario = UID_USUARIO_APP;
     const uid_vendedor = String(req.vendedor.uid_vendedor);
 
     try {
@@ -292,7 +296,7 @@ router.put('/pedidos/:id', verificarToken, async (req, res) => {
     const uid_pedido = req.params.id;
     const pool = await getConnection(req.empresa);
     const tx = new sql.Transaction(pool);
-    const uid_usuario = parseInt(req.vendedor.uid_vendedor);
+    const uid_usuario = UID_USUARIO_APP;
 
     try {
         await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);

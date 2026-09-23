@@ -1,0 +1,17 @@
+MODULO DE COBROS - entrega 2026-09-18
+Extraer sobre ~/flutter/ : los archivos caen en su ruta exacta.
+
+NUEVOS (app):
+  tallerjc_app/lib/features/cobros/data/datasources/cobro_remote_datasource.dart
+  tallerjc_app/lib/features/cobros/presentation/screens/cobro_crear_screen.dart
+  tallerjc_app/lib/features/cobros/presentation/screens/cobros_screen.dart
+  tallerjc_app/lib/features/cobros/presentation/screens/cobro_detalle_screen.dart
+MODIFICADOS (app, reemplazan):
+  tallerjc_app/lib/features/clientes/presentation/widgets/cliente_cxc_card.dart
+  tallerjc_app/lib/features/clientes/presentation/screens/cliente_detalle_screen.dart
+  tallerjc_app/lib/features/dashboard/presentation/screens/dashboard_screen.dart
+  tallerjc_app/lib/core/constants/api_constants.dart
+API (ya desplegada en tenant 001, incluida para sincronizar el Mac):
+  tallerjc-api/routes/cobros.js  (version con reglas de tasa/divisas)
+  tallerjc-api/server.js
+  tallerjc-api/sql/002_tbl_app_idempotencia_cobros.sql

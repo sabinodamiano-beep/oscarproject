@@ -14,7 +14,7 @@ class LocalDatabase {
   LocalDatabase._();
   static final LocalDatabase instance = LocalDatabase._();
 
-  static const int _version = 1;
+  static const int _version = 2;
 
   Database? _db;
   String? _empresa;
@@ -35,7 +35,8 @@ class LocalDatabase {
     if (_db != null && _empresa == codEmpresa) return _db!;
     await cerrar();
     final ruta = p.join(await getDatabasesPath(), 'licores_$codEmpresa.db');
-    _db = await openDatabase(ruta, version: _version, onCreate: _crearEsquema);
+    _db = await openDatabase(ruta,
+        version: _version, onCreate: _crearEsquema, onUpgrade: _migrar);
     _empresa = codEmpresa;
     return _db!;
   }
@@ -85,6 +86,51 @@ class LocalDatabase {
     await db.execute('CREATE INDEX idx_outbox_vend_estado ON pedidos_outbox(uid_vendedor, estado)');
 
     await db.execute('CREATE TABLE meta (clave TEXT PRIMARY KEY, valor TEXT)');
+
+    await _crearEsquemaCobros(db);
+  }
+
+  /// v2 (cobranza offline): caché de CxC del vendedor + cola de cobros.
+  Future<void> _migrar(Database db, int desde, int hasta) async {
+    if (desde < 2) await _crearEsquemaCobros(db);
+  }
+
+  Future<void> _crearEsquemaCobros(Database db) async {
+    // Última foto de las cuentas por cobrar de los clientes del vendedor
+    // (GET /cobros/cxc-vendedor). Cada fila guarda el JSON tal como lo
+    // devuelve la API, igual que clientes/items.
+    await db.execute('''
+      CREATE TABLE cxc_cache (
+        uid_cliente INTEGER NOT NULL,
+        tipodoc     TEXT NOT NULL,
+        iddoc       TEXT NOT NULL,
+        saldo       REAL NOT NULL DEFAULT 0,
+        json        TEXT NOT NULL,
+        PRIMARY KEY (uid_cliente, tipodoc, iddoc)
+      )''');
+    await db.execute('CREATE INDEX idx_cxc_cliente ON cxc_cache(uid_cliente)');
+
+    // Cola de cobros registrados sin señal. payload_json es el body exacto
+    // de POST /cobros (con client_uuid = uuid); resumen_json guarda lo que
+    // hace falta para pintar la tarjeta y el recibo sin volver a la red.
+    await db.execute('''
+      CREATE TABLE cobros_outbox (
+        uuid           TEXT PRIMARY KEY,
+        uid_vendedor   TEXT NOT NULL,
+        uid_cliente    INTEGER NOT NULL,
+        cliente_nombre TEXT NOT NULL DEFAULT '',
+        payload_json   TEXT NOT NULL,
+        resumen_json   TEXT NOT NULL,
+        total          REAL NOT NULL DEFAULT 0,
+        estado         TEXT NOT NULL DEFAULT 'pendiente',
+        intentos       INTEGER NOT NULL DEFAULT 0,
+        ultimo_error   TEXT,
+        numpago        TEXT,
+        fecreg         TEXT NOT NULL,
+        fecmod         TEXT NOT NULL
+      )''');
+    await db.execute(
+        'CREATE INDEX idx_cobros_outbox_vend ON cobros_outbox(uid_vendedor, estado)');
   }
 
   // ---------------------------------------------------------------- meta
@@ -258,6 +304,92 @@ class LocalDatabase {
   Future<int> purgarEnviados({int dias = 3}) async {
     final limite = DateTime.now().subtract(Duration(days: dias)).toIso8601String();
     return db.delete('pedidos_outbox', where: "estado = 'enviado' AND fecmod < ?", whereArgs: [limite]);
+  }
+
+  // ----------------------------------------------------------- cxc cache
+
+  /// Reemplaza la foto completa de CxC del vendedor (una transacción).
+  Future<int> reemplazarCxc(List<dynamic> filas) async {
+    return db.transaction((txn) async {
+      await txn.delete('cxc_cache');
+      final batch = txn.batch();
+      for (final f in filas) {
+        final m = Map<String, dynamic>.from(f as Map);
+        batch.insert('cxc_cache', {
+          'uid_cliente': (m['uid_cliente'] as num?)?.toInt() ?? 0,
+          'tipodoc': (m['tipodoc'] ?? '').toString().trim(),
+          'iddoc': (m['iddoc'] ?? '').toString().trim(),
+          'saldo': double.tryParse('${m['SaldoActual'] ?? 0}') ?? 0,
+          'json': jsonEncode(m),
+        });
+      }
+      await batch.commit(noResult: true);
+      return filas.length;
+    });
+  }
+
+  /// Documentos pendientes de un cliente según la última sincronización.
+  Future<List<Map<String, dynamic>>> cxcCliente(int uidCliente) async {
+    final rows = await db.query('cxc_cache',
+        columns: ['json'],
+        where: 'uid_cliente = ?',
+        whereArgs: [uidCliente],
+        orderBy: 'iddoc ASC');
+    return rows.map(_decodificar).toList();
+  }
+
+  Future<int> contarCxc() async =>
+      Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM cxc_cache')) ?? 0;
+
+  // ------------------------------------------------------- cobros outbox
+  // (Las filas se serializan/deserializan en CobroLocal.toRow / fromRow)
+
+  Future<void> insertarCobroOutbox(Map<String, Object?> fila) async {
+    await db.insert('cobros_outbox', fila, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> actualizarCobroOutbox(String uuid, Map<String, Object?> campos) async {
+    await db.update('cobros_outbox', campos, where: 'uuid = ?', whereArgs: [uuid]);
+  }
+
+  Future<void> eliminarCobroOutbox(String uuid) async {
+    await db.delete('cobros_outbox', where: 'uuid = ?', whereArgs: [uuid]);
+  }
+
+  Future<Map<String, Object?>?> getCobroOutbox(String uuid) async {
+    final r = await db.query('cobros_outbox', where: 'uuid = ?', whereArgs: [uuid], limit: 1);
+    return r.isEmpty ? null : r.first;
+  }
+
+  Future<List<Map<String, Object?>>> listarCobrosOutbox(
+    String uidVendedor, {
+    List<String>? estados,
+    bool fifo = false,
+  }) async {
+    final where = StringBuffer('uid_vendedor = ?');
+    final args = <Object>[uidVendedor];
+    if (estados != null && estados.isNotEmpty) {
+      where.write(' AND estado IN (${List.filled(estados.length, '?').join(',')})');
+      args.addAll(estados);
+    }
+    return db.query('cobros_outbox',
+        where: where.toString(), whereArgs: args, orderBy: fifo ? 'fecreg ASC' : 'fecreg DESC');
+  }
+
+  Future<int> contarCobrosOutbox(String uidVendedor, List<String> estados) async {
+    final r = await db.rawQuery(
+      'SELECT COUNT(*) FROM cobros_outbox WHERE uid_vendedor = ? AND estado IN (${List.filled(estados.length, '?').join(',')})',
+      [uidVendedor, ...estados],
+    );
+    return Sqflite.firstIntValue(r) ?? 0;
+  }
+
+  /// Limpia los cobros ya enviados con más de [dias] días (viven en el servidor).
+  /// Los rechazados NO se purgan: los resuelve el vendedor a mano.
+  Future<int> purgarCobrosEnviados({int dias = 3}) async {
+    final limite = DateTime.now().subtract(Duration(days: dias)).toIso8601String();
+    return db.delete('cobros_outbox',
+        where: "estado = 'enviado' AND fecmod < ?", whereArgs: [limite]);
   }
 
   // ------------------------------------------------------------ helpers
